@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-parchment-200 text-ink font-body antialiased;
+}
+
+::selection {
+  @apply bg-ochre-400/40;
+}
+
+/* Visible keyboard focus everywhere — accessibility floor */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #C98A2B;
+  outline-offset: 2px;
+}
+
+.leaflet-container {
+  font-family: 'Work Sans', sans-serif;
+  background: #EFE7D8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
