@@ -1,4 +1,5 @@
 import uuid
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +20,15 @@ SATELLITE_UPLOAD_ROOT = Path(settings.UPLOAD_DIR) / "satellite"
 SATELLITE_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/tiff", "image/bmp"}
+
+
+def parcel_boundary(latitude: float, longitude: float, area_acres: float) -> list[list[float]]:
+    """Square parcel outline centred at the surveyed point, scaled to its claimed area."""
+    side_metres = math.sqrt(max(area_acres, 0.01) * 4046.8564224)
+    lat_delta = (side_metres / 2) / 111_320
+    lng_delta = (side_metres / 2) / max(111_320 * math.cos(math.radians(latitude)), 1)
+    return [[latitude - lat_delta, longitude - lng_delta], [latitude - lat_delta, longitude + lng_delta],
+            [latitude + lat_delta, longitude + lng_delta], [latitude + lat_delta, longitude - lng_delta]]
 
 
 @router.get("/layers")
@@ -86,6 +96,7 @@ def get_atlas_layers(
             "lat": claim.latitude,
             "lng": claim.longitude,
             "area_acres": claim.area_acres,
+            "parcel_geometry": parcel_boundary(claim.latitude, claim.longitude, claim.area_acres),
             "document_status": document_status,
             "assets": [
                 {

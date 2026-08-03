@@ -67,6 +67,19 @@ export default function ClaimDetail() {
     window.URL.revokeObjectURL(url)
   }
 
+  async function retryOcr(doc) {
+    setUploadError('')
+    setUploading(true)
+    try {
+      const { data } = await client.post(`/claims/${id}/documents/${doc.id}/retry-ocr`)
+      setDocuments((current) => current.map((item) => item.id === data.id ? data : item))
+    } catch (err) {
+      setUploadError(err.response?.data?.detail || 'Could not retry OCR.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   async function updateStatus(e) {
     e.preventDefault()
     setBusy(true)
@@ -206,10 +219,33 @@ export default function ClaimDetail() {
                   </p>
                 </div>
               )}
+              {doc.ocr_status === 'failed' && (
+                <>
+                <p className="mt-2 text-xs text-rust-600 italic">
+                  OCR could not read this image. Please re-upload it after the server OCR setup is complete.
+                </p>
+                <button
+                  onClick={() => retryOcr(doc)}
+                  disabled={uploading}
+                  className="mt-3 rounded-full border border-canopy-900/20 px-3 py-1.5 text-xs font-medium text-canopy-900 hover:bg-canopy-900 hover:text-parchment-100 disabled:opacity-60"
+                >
+                  {uploading ? 'Retrying OCR…' : 'Retry OCR'}
+                </button>
+                </>
+              )}
               {doc.ocr_status === 'unavailable' && (
+                <>
                 <p className="mt-2 text-xs text-canopy-700/50 italic">
                   OCR engine not installed on the server — file stored, text not extracted.
                 </p>
+                <button
+                  onClick={() => retryOcr(doc)}
+                  disabled={uploading}
+                  className="mt-3 rounded-full border border-canopy-900/20 px-3 py-1.5 text-xs font-medium text-canopy-900 hover:bg-canopy-900 hover:text-parchment-100 disabled:opacity-60"
+                >
+                  {uploading ? 'Retrying OCR…' : 'Retry OCR'}
+                </button>
+                </>
               )}
             </div>
           ))}
