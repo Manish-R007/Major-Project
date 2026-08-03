@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Popup, Polygon } from 'react-leaflet'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -44,6 +44,7 @@ export default function Atlas() {
   const [satelliteImage, setSatelliteImage] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [detectError, setDetectError] = useState('')
+  const [basemap, setBasemap] = useState('satellite')
 
   const canRunDetection = ['village_official', 'district_officer', 'state_officer', 'admin'].includes(user.role)
 
@@ -113,6 +114,10 @@ export default function Atlas() {
           </p>
         </div>
         <div className="flex gap-4 text-xs text-canopy-700/70">
+          <select value={basemap} onChange={(e) => setBasemap(e.target.value)} className="rounded-full border border-canopy-900/15 bg-parchment-100 px-3 py-1 text-xs text-canopy-900">
+            <option value="satellite">Satellite imagery</option>
+            <option value="streets">Street map</option>
+          </select>
           {Object.entries(ASSET_COLORS).map(([k, color]) => (
             <span key={k} className="flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-sm" style={{ background: color }} />
@@ -125,12 +130,22 @@ export default function Atlas() {
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="overflow-hidden rounded-2xl border border-canopy-900/10 lg:col-span-2" style={{ height: 560 }}>
           <MapContainer center={center} zoom={6} style={{ height: '100%', width: '100%' }}>
-            <TileLayer
-              attribution='&copy; OpenStreetMap contributors'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
+            {basemap === 'satellite' ? (
+              <TileLayer attribution='Tiles &copy; Esri' url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
+            ) : (
+              <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            )}
             {claims.map((c) => (
-              <div key={c.id}>
+              <Fragment key={c.id}>
+                {c.parcel_geometry && (
+                  <Polygon
+                    positions={c.parcel_geometry}
+                    pathOptions={{ color: '#F2C14E', fillColor: '#F2C14E', fillOpacity: 0.16, weight: 3 }}
+                    eventHandlers={{ click: () => setSelected(c) }}
+                  >
+                    <Popup><div className="font-body text-sm"><p className="font-semibold">{c.claimant_name}'s parcel</p><p>{c.area_acres} acres claimed</p></div></Popup>
+                  </Polygon>
+                )}
                 {c.document_status === 'mismatch' && (
                   <CircleMarker
                     center={[c.lat, c.lng]}
@@ -174,7 +189,7 @@ export default function Atlas() {
                     }}
                   />
                 ))}
-              </div>
+              </Fragment>
             ))}
           </MapContainer>
         </div>
@@ -215,6 +230,9 @@ export default function Atlas() {
                 <div><dt className="text-canopy-700/60">Village</dt><dd className="font-medium">{selected.village}</dd></div>
                 <div><dt className="text-canopy-700/60">District</dt><dd className="font-medium">{selected.district}</dd></div>
               </dl>
+              <p className="mt-3 rounded-lg bg-ochre-500/10 px-3 py-2 text-xs text-canopy-800">
+                Yellow boundary on the satellite map shows this person's claimed {selected.area_acres} acre parcel.
+              </p>
 
               <div className="mt-5 border-t border-canopy-900/10 pt-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-canopy-700/70">

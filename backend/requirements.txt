@@ -3,7 +3,10 @@ uvicorn[standard]==0.30.1
 SQLAlchemy==2.0.30
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
+# passlib 1.7.x reads bcrypt's legacy ``__about__`` metadata. bcrypt 4.1+
+# removed it, which makes every password verification print a traceback even
+# though authentication succeeds. 4.0.1 is the last compatible release.
+bcrypt==4.0.1
 python-multipart==0.0.9
 pydantic==2.7.1
 pydantic-settings==2.2.1

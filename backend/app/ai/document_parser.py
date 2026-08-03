@@ -55,6 +55,13 @@ _NAME_PATTERN = re.compile(
 _AREA_PATTERN = re.compile(
     r"area\s*[:\-]?\s*([\d]+\.?\d*)\s*(?:acres?|ac\.?)?", re.IGNORECASE
 )
+_CLAIM_TYPE_PATTERN = re.compile(r"(?:claim\s*type|right\s*type)\s*[:\-]?\s*(IFR|CFR|CR)\b", re.IGNORECASE)
+_STATE_PATTERN = re.compile(r"state\s*[:\-]?\s*([A-Za-z .]{2,50})", re.IGNORECASE)
+_DISTRICT_PATTERN = re.compile(r"district\s*[:\-]?\s*([A-Za-z .]{2,50})", re.IGNORECASE)
+_VILLAGE_PATTERN = re.compile(r"village\s*[:\-]?\s*([A-Za-z .]{2,50})", re.IGNORECASE)
+_LATITUDE_PATTERN = re.compile(r"(?:latitude|lat)\s*[:\-]?\s*([-+]?\d{1,2}(?:\.\d+)?)", re.IGNORECASE)
+_LONGITUDE_PATTERN = re.compile(r"(?:longitude|long|lon)\s*[:\-]?\s*([-+]?\d{1,3}(?:\.\d+)?)", re.IGNORECASE)
+_LAND_TYPE_PATTERN = re.compile(r"(?:land\s*type|land\s*use)\s*[:\-]?\s*(cultivable|homestead|forest|waterlogged)", re.IGNORECASE)
 
 AREA_TOLERANCE_FRACTION = 0.15   # allow 15% difference before flagging area as a mismatch
 NAME_SIMILARITY_THRESHOLD = 0.7  # difflib ratio; handles OCR noise / minor spelling differences
@@ -81,6 +88,21 @@ def parse_fields(text: str) -> dict:
             parsed["area_acres"] = float(area_match.group(1))
         except ValueError:
             pass
+
+    for key, pattern in (("claim_type", _CLAIM_TYPE_PATTERN), ("state", _STATE_PATTERN),
+                         ("district", _DISTRICT_PATTERN), ("village", _VILLAGE_PATTERN),
+                         ("land_type", _LAND_TYPE_PATTERN)):
+        match = pattern.search(text)
+        if match:
+            parsed[key] = match.group(1).strip().rstrip(".,;")
+
+    for key, pattern in (("latitude", _LATITUDE_PATTERN), ("longitude", _LONGITUDE_PATTERN)):
+        match = pattern.search(text)
+        if match:
+            try:
+                parsed[key] = float(match.group(1))
+            except ValueError:
+                pass
 
     return parsed
 
