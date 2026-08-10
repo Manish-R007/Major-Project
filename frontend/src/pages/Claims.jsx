@@ -74,7 +74,7 @@ export default function Claims() {
       {showForm && (
         <div className="mt-6 rounded-2xl border border-canopy-900/10 bg-parchment-100 p-6">
           <h2 className="font-display text-lg text-canopy-950">Create from claim document</h2>
-          <p className="mt-1 text-sm text-canopy-700/70">Upload a clear labelled scan. OCR reads the claimant, patta, area, location and parcel coordinates—no manual form entry.</p>
+          <p className="mt-1 text-sm text-canopy-700/70">Upload a clear labelled scan. OCR reads the claimant, patta, area, village and survey number, then matches the official cadastral boundary—no manual form entry.</p>
           <label className="mt-4 inline-block cursor-pointer rounded-lg bg-ochre-500 px-6 py-2.5 text-sm font-medium text-canopy-950 hover:bg-ochre-400">
             {uploading ? 'Reading document…' : 'Upload document and create claim'}
             <input type="file" accept="image/png,image/jpeg,image/tiff,image/bmp" onChange={handleCreate} disabled={uploading} className="hidden" />

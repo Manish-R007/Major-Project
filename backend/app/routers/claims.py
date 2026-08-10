@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user, require_roles
-from app.models import Claim, ClaimDocument, User, UserRole, ClaimType, AuditLog, OcrStatus, DocumentVerificationStatus
+from app.models import Claim, ClaimDocument, CadastralParcel, User, UserRole, ClaimType, AuditLog, OcrStatus, DocumentVerificationStatus
 from app.schemas import ClaimCreate, ClaimOut, ClaimUpdateStatus, ClaimDocumentOut
 from app.ai.ocr import extract_text_from_image, should_attempt_ocr
 from app.ai.document_parser import parse_fields, verify_against_claim
@@ -26,7 +26,7 @@ ALLOWED_CONTENT_TYPES = {
 
 OCR_CLAIM_FIELDS = {
     "patta_number", "claimant_name", "claim_type", "state", "district", "village",
-    "latitude", "longitude", "area_acres",
+    "survey_number", "area_acres",
 }
 
 
@@ -66,12 +66,25 @@ def create_claim_from_document(
         staged_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="A claim with this Patta number already exists.")
 
+    parcel = db.query(CadastralParcel).filter(
+        CadastralParcel.state.ilike(parsed["state"]), CadastralParcel.district.ilike(parsed["district"]),
+        CadastralParcel.village.ilike(parsed["village"]), CadastralParcel.survey_number.ilike(parsed["survey_number"]),
+    ).first()
+    if not parcel:
+        staged_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=("No official cadastral parcel was found for this survey number. "
+            "An administrator must import the village GeoJSON before this claim can be mapped."))
+
+    vertices = parcel.geometry
+    latitude = sum(point[0] for point in vertices) / len(vertices)
+    longitude = sum(point[1] for point in vertices) / len(vertices)
     claim = Claim(
         patta_number=parsed["patta_number"], claimant_name=parsed["claimant_name"],
         claim_type=ClaimType(parsed["claim_type"].upper()), state=parsed["state"],
-        district=parsed["district"], village=parsed["village"], latitude=parsed["latitude"],
-        longitude=parsed["longitude"], area_acres=parsed["area_acres"],
-        land_type=parsed.get("land_type", "cultivable").lower(), owner_id=current_user.id,
+        district=parsed["district"], village=parsed["village"], latitude=latitude,
+        longitude=longitude, area_acres=parcel.area_acres or parsed["area_acres"],
+        land_type=parsed.get("land_type", "cultivable").lower(), survey_number=parsed["survey_number"],
+        parcel_geometry=vertices, parcel_source="cadastral_registry", owner_id=current_user.id,
     )
     db.add(claim)
     db.flush()

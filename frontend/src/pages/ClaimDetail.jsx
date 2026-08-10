@@ -124,6 +124,12 @@ export default function ClaimDetail() {
         <InfoBlock label="Area" value={`${claim.area_acres} acres`} />
         <InfoBlock label="Submitted" value={new Date(claim.submitted_date).toLocaleDateString()} />
       </div>
+      {claim.survey_number && (
+        <div className="mt-4 rounded-xl border border-canopy-900/10 bg-parchment-100 p-4 text-sm text-canopy-800">
+          <span className="font-medium">Survey / plot number:</span> {claim.survey_number}
+          {claim.parcel_source === 'cadastral_registry' && <span className="ml-2 rounded-full bg-canopy-400/25 px-2 py-1 text-xs text-canopy-800">Official cadastral boundary matched</span>}
+        </div>
+      )}
 
       {claim.reviewer_notes && (
         <div className="mt-6 rounded-xl border border-canopy-900/10 bg-parchment-200/50 p-4">

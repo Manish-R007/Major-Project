@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "name": "baihar_cadastral_demo",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "state": "Madhya Pradesh",
+        "district": "Balaghat",
+        "village": "Baihar",
+        "survey_number": "123/2",
+        "area_acres": 1.8
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [80.3340, 22.0985],
+            [80.3360, 22.0985],
+            [80.3360, 22.1002],
+            [80.3340, 22.1002],
+            [80.3340, 22.0985]
+          ]
+        ]
+      }
+    }
+  ]
+}

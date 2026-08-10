@@ -1,5 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
-import { MapContainer, TileLayer, CircleMarker, Popup, Polygon } from 'react-leaflet'
+import { useEffect, useRef, useState } from 'react'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext.jsx'
 import ClaimStatusBadge from '../components/ClaimStatusBadge.jsx'
@@ -44,7 +43,6 @@ export default function Atlas() {
   const [satelliteImage, setSatelliteImage] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [detectError, setDetectError] = useState('')
-  const [basemap, setBasemap] = useState('satellite')
 
   const canRunDetection = ['village_official', 'district_officer', 'state_officer', 'admin'].includes(user.role)
 
@@ -114,10 +112,6 @@ export default function Atlas() {
           </p>
         </div>
         <div className="flex gap-4 text-xs text-canopy-700/70">
-          <select value={basemap} onChange={(e) => setBasemap(e.target.value)} className="rounded-full border border-canopy-900/15 bg-parchment-100 px-3 py-1 text-xs text-canopy-900">
-            <option value="satellite">Satellite imagery</option>
-            <option value="streets">Street map</option>
-          </select>
           {Object.entries(ASSET_COLORS).map(([k, color]) => (
             <span key={k} className="flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-sm" style={{ background: color }} />
@@ -129,7 +123,8 @@ export default function Atlas() {
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="overflow-hidden rounded-2xl border border-canopy-900/10 lg:col-span-2" style={{ height: 560 }}>
-          <MapContainer center={center} zoom={6} style={{ height: '100%', width: '100%' }}>
+          <GoogleClaimsMap claims={claims} center={center} onSelect={setSelected} />
+          {/* Legacy renderer removed; Google Maps is rendered above.
             {basemap === 'satellite' ? (
               <TileLayer attribution='Tiles &copy; Esri' url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
             ) : (
@@ -191,7 +186,7 @@ export default function Atlas() {
                 ))}
               </Fragment>
             ))}
-          </MapContainer>
+          */}
         </div>
 
         <div className="rounded-2xl border border-canopy-900/10 bg-parchment-100 p-5">
@@ -312,4 +307,82 @@ export default function Atlas() {
       </div>
     </div>
   )
+}
+
+function GoogleClaimsMap({ claims, center, onSelect }) {
+  const elementRef = useRef(null)
+  const mapRef = useRef(null)
+  const overlaysRef = useRef([])
+  const [mapReady, setMapReady] = useState(false)
+  const [error, setError] = useState('')
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+
+  useEffect(() => {
+    if (!apiKey) {
+      setError('Google Maps is not configured. Add VITE_GOOGLE_MAPS_API_KEY to frontend/.env.local and restart Vite.')
+      return undefined
+    }
+    const initialise = () => {
+      if (mapRef.current || !elementRef.current) return
+      mapRef.current = new window.google.maps.Map(elementRef.current, {
+        center: { lat: center[0], lng: center[1] }, zoom: claims.length ? 12 : 5,
+        mapTypeId: 'satellite', mapTypeControl: true, streetViewControl: false, fullscreenControl: true,
+        mapTypeControlOptions: { mapTypeIds: ['roadmap', 'satellite', 'hybrid', 'terrain'] },
+      })
+      setMapReady(true)
+    }
+    if (window.google?.maps) { initialise(); return undefined }
+    const existing = document.getElementById('google-maps-js')
+    if (existing) {
+      existing.addEventListener('load', initialise)
+      return () => existing.removeEventListener('load', initialise)
+    }
+    const script = document.createElement('script')
+    script.id = 'google-maps-js'
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`
+    script.async = true
+    script.addEventListener('load', initialise)
+    script.addEventListener('error', () => setError('Google Maps could not load. Check the API key restrictions and Maps JavaScript API setting.'))
+    document.head.appendChild(script)
+    return () => script.removeEventListener('load', initialise)
+  }, [apiKey])
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return
+    overlaysRef.current.forEach((overlay) => overlay.setMap(null))
+    const map = mapRef.current
+    const bounds = new window.google.maps.LatLngBounds()
+    const overlays = []
+    claims.forEach((claim) => {
+      const position = { lat: claim.lat, lng: claim.lng }
+      bounds.extend(position)
+      if (claim.parcel_geometry) {
+        const parcel = new window.google.maps.Polygon({
+          paths: claim.parcel_geometry.map(([lat, lng]) => ({ lat, lng })), map,
+          strokeColor: '#F2C14E', strokeOpacity: 1, strokeWeight: 3, fillColor: '#F2C14E', fillOpacity: 0.16,
+        })
+        parcel.addListener('click', () => onSelect(claim))
+        overlays.push(parcel)
+      }
+      const marker = new window.google.maps.Marker({
+        position, map, title: `${claim.claimant_name} — ${claim.area_acres} acres`,
+        icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: STATUS_COLORS[claim.status], fillOpacity: 0.9,
+          strokeColor: claim.document_status === 'mismatch' ? '#A64B3A' : '#ffffff', strokeWeight: 2 },
+      })
+      marker.addListener('click', () => onSelect(claim))
+      overlays.push(marker)
+      claim.assets.forEach((asset) => {
+        if (!asset.geometry) return
+        overlays.push(new window.google.maps.Polygon({
+          paths: asset.geometry.map(([lat, lng]) => ({ lat, lng })), map,
+          strokeColor: ASSET_COLORS[asset.asset_type], strokeWeight: 1, fillColor: ASSET_COLORS[asset.asset_type], fillOpacity: 0.25,
+        }))
+      })
+    })
+    overlaysRef.current = overlays
+    if (claims.length === 1) map.setCenter({ lat: claims[0].lat, lng: claims[0].lng })
+    else if (claims.length > 1) map.fitBounds(bounds, 48)
+  }, [claims, mapReady, onSelect])
+
+  return <div className="relative h-full w-full"><div ref={elementRef} className="h-full w-full" />{error && <div className="absolute inset-0 flex items-center justify-center bg-parchment-100 p-8 text-center text-sm text-rust-600">{error}</div>}</div>
 }

@@ -62,6 +62,7 @@ _VILLAGE_PATTERN = re.compile(r"village\s*[:\-]?\s*([A-Za-z .]{2,50})", re.IGNOR
 _LATITUDE_PATTERN = re.compile(r"(?:latitude|lat)\s*[:\-]?\s*([-+]?\d{1,2}(?:\.\d+)?)", re.IGNORECASE)
 _LONGITUDE_PATTERN = re.compile(r"(?:longitude|long|lon)\s*[:\-]?\s*([-+]?\d{1,3}(?:\.\d+)?)", re.IGNORECASE)
 _LAND_TYPE_PATTERN = re.compile(r"(?:land\s*type|land\s*use)\s*[:\-]?\s*(cultivable|homestead|forest|waterlogged)", re.IGNORECASE)
+_SURVEY_PATTERN = re.compile(r"(?:survey|khasra|plot|gat)\s*(?:no\.?|number)?\s*[:\-]?\s*([A-Za-z0-9\-/]{1,40})", re.IGNORECASE)
 
 AREA_TOLERANCE_FRACTION = 0.15   # allow 15% difference before flagging area as a mismatch
 NAME_SIMILARITY_THRESHOLD = 0.7  # difflib ratio; handles OCR noise / minor spelling differences
@@ -103,6 +104,10 @@ def parse_fields(text: str) -> dict:
                 parsed[key] = float(match.group(1))
             except ValueError:
                 pass
+
+    survey_match = _SURVEY_PATTERN.search(text)
+    if survey_match:
+        parsed["survey_number"] = survey_match.group(1).strip().upper()
 
     return parsed
 

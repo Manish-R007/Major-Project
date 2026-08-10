@@ -96,7 +96,8 @@ def get_atlas_layers(
             "lat": claim.latitude,
             "lng": claim.longitude,
             "area_acres": claim.area_acres,
-            "parcel_geometry": parcel_boundary(claim.latitude, claim.longitude, claim.area_acres),
+            "parcel_geometry": claim.parcel_geometry or parcel_boundary(claim.latitude, claim.longitude, claim.area_acres),
+            "parcel_source": claim.parcel_source or "estimated",
             "document_status": document_status,
             "assets": [
                 {

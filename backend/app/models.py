@@ -77,6 +77,9 @@ class Claim(Base):
     longitude = Column(Float, nullable=False)
     area_acres = Column(Float, nullable=False)
     land_type = Column(String(64), nullable=True)  # e.g. cultivable, homestead
+    survey_number = Column(String(80), nullable=True, index=True)
+    parcel_geometry = Column(JSON, nullable=True)  # official cadastral polygon [[lat, lng], ...]
+    parcel_source = Column(String(32), nullable=True)  # cadastral_registry | estimated
 
     submitted_date = Column(DateTime, default=datetime.utcnow)
     reviewed_date = Column(DateTime, nullable=True)
@@ -92,6 +95,19 @@ class Claim(Base):
     documents = relationship(
         "ClaimDocument", back_populates="claim", cascade="all, delete-orphan"
     )
+
+
+class CadastralParcel(Base):
+    """Official parcel geometry imported from an authorised cadastral GeoJSON export."""
+    __tablename__ = "cadastral_parcels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    state = Column(String(64), nullable=False, index=True)
+    district = Column(String(64), nullable=False, index=True)
+    village = Column(String(64), nullable=False, index=True)
+    survey_number = Column(String(80), nullable=False, index=True)
+    geometry = Column(JSON, nullable=False)
+    area_acres = Column(Float, nullable=True)
 
 
 class Asset(Base):
