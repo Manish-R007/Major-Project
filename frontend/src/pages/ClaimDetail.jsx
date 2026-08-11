@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 import ClaimStatusBadge from '../components/ClaimStatusBadge.jsx'
 import OcrStatusBadge from '../components/OcrStatusBadge.jsx'
 import VerificationBadge from '../components/VerificationBadge.jsx'
+import CameraCaptureModal from '../components/CameraCaptureModal.jsx'
 
 const STATUS_OPTIONS = ['submitted', 'under_review', 'verified', 'approved', 'rejected']
 
@@ -19,6 +20,7 @@ export default function ClaimDetail() {
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [cameraOpen, setCameraOpen] = useState(false)
 
   const canReview = ['village_official', 'district_officer', 'state_officer', 'admin'].includes(user.role)
 
@@ -33,8 +35,8 @@ export default function ClaimDetail() {
 
   useEffect(() => { load() }, [id])
 
-  async function handleFileUpload(e) {
-    const file = e.target.files[0]
+  async function handleFileUpload(input) {
+    const file = input instanceof File ? input : input.target.files[0]
     if (!file) return
     setUploadError('')
     setUploading(true)
@@ -49,7 +51,7 @@ export default function ClaimDetail() {
       setUploadError(err.response?.data?.detail || 'Upload failed.')
     } finally {
       setUploading(false)
-      e.target.value = ''
+      if (input.target) input.target.value = ''
     }
   }
 
@@ -124,6 +126,12 @@ export default function ClaimDetail() {
         <InfoBlock label="Area" value={`${claim.area_acres} acres`} />
         <InfoBlock label="Submitted" value={new Date(claim.submitted_date).toLocaleDateString()} />
       </div>
+      {claim.survey_number && (
+        <div className="mt-4 rounded-xl border border-canopy-900/10 bg-parchment-100 p-4 text-sm text-canopy-800">
+          <span className="font-medium">Survey / plot number:</span> {claim.survey_number}
+          {claim.parcel_source === 'cadastral_registry' && <span className="ml-2 rounded-full bg-canopy-400/25 px-2 py-1 text-xs text-canopy-800">Official cadastral boundary matched</span>}
+        </div>
+      )}
 
       {claim.reviewer_notes && (
         <div className="mt-6 rounded-xl border border-canopy-900/10 bg-parchment-200/50 p-4">
@@ -168,19 +176,17 @@ export default function ClaimDetail() {
               Scanned pattas, old FRA forms, or survey sketches for this claim.
             </p>
           </div>
-          <label className="cursor-pointer rounded-full bg-canopy-900 px-4 py-2 text-xs font-medium text-parchment-100 hover:bg-canopy-800">
-            {uploading ? 'Uploading…' : '+ Upload Document'}
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/tiff,image/bmp,application/pdf"
-              onChange={handleFileUpload}
-              disabled={uploading}
-              className="hidden"
-            />
-          </label>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setCameraOpen(true)} disabled={uploading} className="rounded-full bg-canopy-900 px-4 py-2 text-xs font-medium text-parchment-100 hover:bg-canopy-800 disabled:opacity-60">{uploading ? 'Uploading…' : 'Scan with camera'}</button>
+            <label className="cursor-pointer rounded-full border border-canopy-900/20 px-4 py-2 text-xs font-medium text-canopy-900 hover:bg-canopy-900 hover:text-parchment-100">
+              + Upload file
+              <input type="file" accept="image/png,image/jpeg,image/tiff,image/bmp,application/pdf" onChange={handleFileUpload} disabled={uploading} className="hidden" />
+            </label>
+          </div>
         </div>
 
         {uploadError && <p className="mt-3 text-sm text-rust-600">{uploadError}</p>}
+        <p className="mt-3 text-xs text-canopy-700/60">On a phone, “Scan with camera” requests the rear camera. On desktop, choose a file or use your webcam if the browser offers it.</p>
 
         {documents.length === 0 && (
           <p className="mt-4 text-sm text-canopy-700/60">No documents uploaded yet.</p>
@@ -251,6 +257,7 @@ export default function ClaimDetail() {
           ))}
         </div>
       </div>
+      {cameraOpen && <CameraCaptureModal onClose={() => setCameraOpen(false)} onCapture={(file) => { setCameraOpen(false); handleFileUpload(file) }} />}
 
       <div className="mt-8 rounded-2xl border border-canopy-900/10 bg-parchment-100 p-6">
         <div className="flex items-center justify-between">

@@ -20,11 +20,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   outline-offset: 2px;
 }
 
-.leaflet-container {
-  font-family: 'Work Sans', sans-serif;
-  background: #EFE7D8;
-}
-
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

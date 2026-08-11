@@ -110,6 +110,9 @@ class ClaimOut(BaseModel):
     reviewed_date: Optional[datetime]
     reviewer_notes: Optional[str]
     owner_id: Optional[int]
+    survey_number: Optional[str] = None
+    parcel_geometry: Optional[list] = None
+    parcel_source: Optional[str] = None
 
 
 # ---------- Assets ----------
