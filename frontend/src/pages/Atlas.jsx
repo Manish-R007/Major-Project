@@ -35,13 +35,30 @@ const DOC_STATUS_STYLES = {
   no_document: 'bg-parchment-300 text-canopy-700/50',
 }
 
+function createMarkerContent(color, hasDocumentMismatch) {
+  const marker = document.createElement('div')
+  marker.style.width = '16px'
+  marker.style.height = '16px'
+  marker.style.borderRadius = '9999px'
+  marker.style.background = color
+  marker.style.border = `2px solid ${hasDocumentMismatch ? '#A64B3A' : '#ffffff'}`
+  marker.style.boxShadow = '0 1px 4px rgba(0, 0, 0, 0.35)'
+  return marker
+}
+
+function removeMapOverlay(overlay) {
+  if (typeof overlay.setMap === 'function') {
+    overlay.setMap(null)
+    return
+  }
+  overlay.map = null
+}
+
 export default function Atlas() {
   const { user } = useAuth()
   const [claims, setClaims] = useState([])
   const [selected, setSelected] = useState(null)
   const [detecting, setDetecting] = useState(false)
-  const [satelliteImage, setSatelliteImage] = useState(null)
-  const [uploadingImage, setUploadingImage] = useState(false)
   const [detectError, setDetectError] = useState('')
 
   const canRunDetection = ['village_official', 'district_officer', 'state_officer', 'admin'].includes(user.role)
@@ -52,46 +69,20 @@ export default function Atlas() {
 
   useEffect(() => { loadLayers() }, [])
 
-  useEffect(() => {
-    if (!selected) { setSatelliteImage(null); return }
-    client.get(`/atlas/claims/${selected.id}/satellite-image`)
-      .then(({ data }) => setSatelliteImage(data))
-      .catch(() => setSatelliteImage(null))
-  }, [selected?.id])
-
-  async function uploadSatelliteImage(e) {
-    const file = e.target.files[0]
-    if (!file || !selected) return
-    setUploadingImage(true)
-    setDetectError('')
-    const formData = new FormData()
-    formData.append('file', file)
-    try {
-      const { data } = await client.post(
-        `/atlas/claims/${selected.id}/satellite-image?coverage_deg=0.01`, formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
-      )
-      setSatelliteImage(data)
-    } catch (err) {
-      setDetectError(err.response?.data?.detail || 'Image upload failed.')
-    } finally {
-      setUploadingImage(false)
-      e.target.value = ''
-    }
-  }
-
-  async function runDetection(claimId) {
+  async function analyzeSatellite(claimId) {
     setDetecting(true)
     setDetectError('')
     try {
-      await client.post('/atlas/detect', { claim_id: claimId })
-      loadLayers()
-      // Refresh the selected claim's data (with new assets) from the reloaded layer list.
       const { data } = await client.get('/atlas/layers')
-      const updated = data.claims.find((c) => c.id === claimId)
+      const current = data.claims.find((c) => c.id === claimId)
+      if (!current) throw new Error('Claim is no longer available in your jurisdiction.')
+      await client.post(`/atlas/claims/${claimId}/analyze-satellite`)
+      const refreshed = await client.get('/atlas/layers')
+      setClaims(refreshed.data.claims)
+      const updated = refreshed.data.claims.find((c) => c.id === claimId)
       if (updated) setSelected(updated)
     } catch (err) {
-      setDetectError(err.response?.data?.detail || 'Detection failed.')
+      setDetectError(err.response?.data?.detail || err.message || 'Satellite analysis failed.')
     } finally {
       setDetecting(false)
     }
@@ -231,7 +222,7 @@ export default function Atlas() {
 
               <div className="mt-5 border-t border-canopy-900/10 pt-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-canopy-700/70">
-                  Detected Assets ({selected.assets.length})
+                  Parcel land-cover breakdown ({selected.assets.length})
                 </p>
                 {selected.assets.length === 0 && (
                   <p className="mt-2 text-sm text-canopy-700/60">No assets detected yet.</p>
@@ -250,54 +241,33 @@ export default function Atlas() {
                   ))}
                 </ul>
                 {selected.assets.length > 0 && (
+                  <p className="mt-2 text-xs text-canopy-700/60">
+                    Analysed within this claimant’s boundary: {selected.assets.reduce((total, asset) => total + Number(asset.area_acres || 0), 0).toFixed(2)} of {Number(selected.area_acres).toFixed(2)} acres.
+                  </p>
+                )}
+                {selected.assets.length > 0 && (
                   <p className="mt-2 text-[11px] text-canopy-700/50">
                     {selected.assets[0].source === 'satellite_cv_kmeans'
-                      ? 'Detected from your uploaded image (real K-means color-clustering analysis).'
-                      : 'Simulated detection — no satellite image has been uploaded for this claim yet.'}
+                      ? 'Automatically acquired Sentinel-2 imagery, classified with scene data and vegetation signals.'
+                      : 'Detection source recorded with this asset.'}
                   </p>
                 )}
               </div>
 
               {canRunDetection && (
                 <div className="mt-5 space-y-3 border-t border-canopy-900/10 pt-4">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-canopy-700/70">
-                      Satellite / Aerial Image
-                    </p>
-                    {satelliteImage ? (
-                      <p className="mt-1 text-xs text-canopy-700/60">
-                        📎 {satelliteImage.original_filename} — uploaded{' '}
-                        {new Date(satelliteImage.uploaded_at).toLocaleDateString()}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-xs text-canopy-700/50">
-                        No image uploaded — detection will use the simulated fallback.
-                      </p>
-                    )}
-                    <label className="mt-2 inline-block cursor-pointer rounded-full border border-canopy-900/20 px-4 py-1.5 text-xs font-medium text-canopy-900 hover:bg-canopy-900 hover:text-parchment-100">
-                      {uploadingImage ? 'Uploading…' : satelliteImage ? 'Replace image' : 'Upload image'}
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg,image/tiff,image/bmp"
-                        onChange={uploadSatelliteImage}
-                        disabled={uploadingImage}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
+                  <p className="text-xs text-canopy-700/60">
+                    Free Sentinel-2 imagery is acquired automatically for this parcel. Land cover and scheme recommendations are refreshed from the analysed image.
+                  </p>
 
                   {detectError && <p className="text-sm text-rust-600">{detectError}</p>}
 
                   <button
-                    onClick={() => runDetection(selected.id)}
+                    onClick={() => analyzeSatellite(selected.id)}
                     disabled={detecting}
                     className="w-full rounded-lg bg-ochre-500 py-2.5 text-sm font-medium text-canopy-950 transition hover:bg-ochre-400 disabled:opacity-60"
                   >
-                    {detecting
-                      ? 'Running detection…'
-                      : satelliteImage
-                        ? 'Run Real CV Asset Detection'
-                        : 'Run Simulated Asset Detection'}
+                    {detecting ? 'Acquiring and analysing…' : 'Analyse satellite image'}
                   </button>
                 </div>
               )}
@@ -312,10 +282,12 @@ export default function Atlas() {
 function GoogleClaimsMap({ claims, center, onSelect }) {
   const elementRef = useRef(null)
   const mapRef = useRef(null)
+  const callbackNameRef = useRef(`initGoogleClaimsMap${Math.random().toString(36).slice(2)}`)
   const overlaysRef = useRef([])
   const [mapReady, setMapReady] = useState(false)
   const [error, setError] = useState('')
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+  const mapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID
 
   useEffect(() => {
     if (!apiKey) {
@@ -324,32 +296,49 @@ function GoogleClaimsMap({ claims, center, onSelect }) {
     }
     const initialise = () => {
       if (mapRef.current || !elementRef.current) return
+      if (typeof window.google?.maps?.Map !== 'function') {
+        setError('Google Maps loaded, but the Maps JavaScript library is not available. Check that Maps JavaScript API is enabled for this key.')
+        return
+      }
       mapRef.current = new window.google.maps.Map(elementRef.current, {
         center: { lat: center[0], lng: center[1] }, zoom: claims.length ? 12 : 5,
         mapTypeId: 'satellite', mapTypeControl: true, streetViewControl: false, fullscreenControl: true,
         mapTypeControlOptions: { mapTypeIds: ['roadmap', 'satellite', 'hybrid', 'terrain'] },
+        ...(mapId ? { mapId } : {}),
       })
       setMapReady(true)
     }
+    const handleAuthFailure = () => {
+      setError('Google Maps rejected this key. The public Google demo/sample key only works on Google\'s own demo sites. Create a browser key in your Google Cloud project, enable Maps JavaScript API and billing, and allow this app\'s URL in its HTTP referrer restrictions.')
+    }
+    const callbackName = callbackNameRef.current
+    window.gm_authFailure = handleAuthFailure
+    window[callbackName] = initialise
     if (window.google?.maps) { initialise(); return undefined }
     const existing = document.getElementById('google-maps-js')
     if (existing) {
-      existing.addEventListener('load', initialise)
-      return () => existing.removeEventListener('load', initialise)
+      return () => {
+        if (window[callbackName] === initialise) delete window[callbackName]
+      }
     }
     const script = document.createElement('script')
     script.id = 'google-maps-js'
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async&libraries=marker&callback=${callbackName}`
     script.async = true
-    script.addEventListener('load', initialise)
-    script.addEventListener('error', () => setError('Google Maps could not load. Check the API key restrictions and Maps JavaScript API setting.'))
+    script.defer = true
+    const handleLoadError = () => setError('Google Maps could not load. Check the API key restrictions and Maps JavaScript API setting.')
+    script.addEventListener('error', handleLoadError)
     document.head.appendChild(script)
-    return () => script.removeEventListener('load', initialise)
-  }, [apiKey])
+    return () => {
+      script.removeEventListener('error', handleLoadError)
+      if (window.gm_authFailure === handleAuthFailure) delete window.gm_authFailure
+      if (window[callbackName] === initialise) delete window[callbackName]
+    }
+  }, [apiKey, mapId])
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return
-    overlaysRef.current.forEach((overlay) => overlay.setMap(null))
+    overlaysRef.current.forEach(removeMapOverlay)
     const map = mapRef.current
     const bounds = new window.google.maps.LatLngBounds()
     const overlays = []
@@ -364,11 +353,18 @@ function GoogleClaimsMap({ claims, center, onSelect }) {
         parcel.addListener('click', () => onSelect(claim))
         overlays.push(parcel)
       }
-      const marker = new window.google.maps.Marker({
-        position, map, title: `${claim.claimant_name} — ${claim.area_acres} acres`,
-        icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: STATUS_COLORS[claim.status], fillOpacity: 0.9,
-          strokeColor: claim.document_status === 'mismatch' ? '#A64B3A' : '#ffffff', strokeWeight: 2 },
-      })
+      const markerTitle = `${claim.claimant_name} - ${claim.area_acres} acres`
+      const markerColor = STATUS_COLORS[claim.status]
+      const marker = mapId && window.google.maps.marker?.AdvancedMarkerElement
+        ? new window.google.maps.marker.AdvancedMarkerElement({
+          position, map, title: markerTitle,
+          content: createMarkerContent(markerColor, claim.document_status === 'mismatch'),
+        })
+        : new window.google.maps.Marker({
+          position, map, title: markerTitle,
+          icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: markerColor, fillOpacity: 0.9,
+            strokeColor: claim.document_status === 'mismatch' ? '#A64B3A' : '#ffffff', strokeWeight: 2 },
+        })
       marker.addListener('click', () => onSelect(claim))
       overlays.push(marker)
       claim.assets.forEach((asset) => {

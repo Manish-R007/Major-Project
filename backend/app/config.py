@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 15
 
+    # Free Copernicus Data Space OAuth client credentials used for automatic
+    # Sentinel-2 imagery acquisition. Never expose the secret to the browser.
+    COPERNICUS_CLIENT_ID: str | None = None
+    COPERNICUS_CLIENT_SECRET: str | None = None
+
     class Config:
         env_file = ".env"
 
