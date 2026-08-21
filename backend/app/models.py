@@ -98,7 +98,7 @@ class Claim(Base):
 
 
 class CadastralParcel(Base):
-    """Official parcel geometry imported from an authorised cadastral GeoJSON export."""
+    """Parcel geometry and record metadata imported from local GeoJSON files."""
     __tablename__ = "cadastral_parcels"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -108,6 +108,11 @@ class CadastralParcel(Base):
     survey_number = Column(String(80), nullable=False, index=True)
     geometry = Column(JSON, nullable=False)
     area_acres = Column(Float, nullable=True)
+    # Kept with the parcel so OCR is verified against the local source data,
+    # not against values typed by a claimant.
+    record_identifier = Column(String(80), nullable=True)
+    landholder_name = Column(String(120), nullable=True)
+    land_type = Column(String(120), nullable=True)
 
 
 class Asset(Base):

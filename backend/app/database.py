@@ -16,7 +16,7 @@ def apply_lightweight_migrations():
     """Keep existing local SQLite demo databases compatible with new optional claim fields."""
     if not settings.DATABASE_URL.startswith("sqlite"):
         return
-    columns = {column["name"] for column in inspect(engine).get_columns("claims")}
+    claim_columns = {column["name"] for column in inspect(engine).get_columns("claims")}
     additions = {
         "survey_number": "VARCHAR(80)",
         "parcel_geometry": "JSON",
@@ -24,8 +24,18 @@ def apply_lightweight_migrations():
     }
     with engine.begin() as connection:
         for name, sql_type in additions.items():
-            if name not in columns:
+            if name not in claim_columns:
                 connection.execute(text(f"ALTER TABLE claims ADD COLUMN {name} {sql_type}"))
+    parcel_columns = {column["name"] for column in inspect(engine).get_columns("cadastral_parcels")}
+    parcel_additions = {
+        "record_identifier": "VARCHAR(80)",
+        "landholder_name": "VARCHAR(120)",
+        "land_type": "VARCHAR(120)",
+    }
+    with engine.begin() as connection:
+        for name, sql_type in parcel_additions.items():
+            if name not in parcel_columns:
+                connection.execute(text(f"ALTER TABLE cadastral_parcels ADD COLUMN {name} {sql_type}"))
 
 
 def get_db():

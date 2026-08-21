@@ -3,14 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import Base, engine, SessionLocal, apply_lightweight_migrations
-from app.cadastral_loader import load_bundled_demo_parcel
+from app.cadastral_loader import load_bundled_parcels
 from app.routers import auth, claims, atlas, cadastral, dss, users
 
 Base.metadata.create_all(bind=engine)
 apply_lightweight_migrations()
 _startup_db = SessionLocal()
 try:
-    load_bundled_demo_parcel(_startup_db)
+    load_bundled_parcels(_startup_db)
 finally:
     _startup_db.close()
 

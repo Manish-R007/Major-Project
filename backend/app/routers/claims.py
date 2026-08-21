@@ -1,4 +1,5 @@
 import uuid
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -12,7 +13,7 @@ from app.deps import get_current_user, require_roles
 from app.models import Claim, ClaimDocument, CadastralParcel, User, UserRole, ClaimType, AuditLog, OcrStatus, DocumentVerificationStatus
 from app.schemas import ClaimCreate, ClaimOut, ClaimUpdateStatus, ClaimDocumentOut
 from app.ai.ocr import extract_text_from_image, should_attempt_ocr
-from app.ai.document_parser import parse_fields, verify_against_claim
+from app.ai.document_parser import parse_fields, verify_against_parcel
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
 
@@ -24,10 +25,9 @@ ALLOWED_CONTENT_TYPES = {
     "application/pdf",
 }
 
-OCR_CLAIM_FIELDS = {
-    "patta_number", "claimant_name", "claim_type", "state", "district", "village",
-    "survey_number", "area_acres",
-}
+# These are the fields shared by every local GeoJSON record. A document that
+# does not identify one of these cannot be verified from backend/data.
+OCR_PARCEL_FIELDS = {"state", "district", "village", "survey_number"}
 
 
 @router.post("/from-document", response_model=ClaimOut, status_code=status.HTTP_201_CREATED)
@@ -57,15 +57,11 @@ def create_claim_from_document(
         raise HTTPException(status_code=422, detail="OCR could not read this scan. Upload a sharper, well-lit document image.")
 
     parsed = parse_fields(extracted_text or "")
-    missing = sorted(OCR_CLAIM_FIELDS - parsed.keys())
+    missing = sorted(OCR_PARCEL_FIELDS - parsed.keys())
     if missing:
         staged_path.unlink(missing_ok=True)
         readable = ", ".join(field.replace("_", " ") for field in missing)
         raise HTTPException(status_code=422, detail=f"OCR could not find: {readable}. Use a labelled claim document with these details visible.")
-    if db.query(Claim).filter(Claim.patta_number == parsed["patta_number"]).first():
-        staged_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="A claim with this Patta number already exists.")
-
     parcel = db.query(CadastralParcel).filter(
         CadastralParcel.state.ilike(parsed["state"]), CadastralParcel.district.ilike(parsed["district"]),
         CadastralParcel.village.ilike(parsed["village"]), CadastralParcel.survey_number.ilike(parsed["survey_number"]),
@@ -75,15 +71,35 @@ def create_claim_from_document(
         raise HTTPException(status_code=422, detail=("No official cadastral parcel was found for this survey number. "
             "An administrator must import the village GeoJSON before this claim can be mapped."))
 
+    verification_status, mismatches = verify_against_parcel(parsed, parcel)
+    if verification_status != DocumentVerificationStatus.MATCHED.value:
+        staged_path.unlink(missing_ok=True)
+        readable = ", ".join(field.replace("_", " ") for field in mismatches)
+        raise HTTPException(status_code=422, detail=f"Document does not match the local cadastral record: {readable}.")
+
+    # Use local-record identifiers/attributes wherever the data provides them.
+    # This keeps a successful OCR claim tied to backend/data rather than an
+    # unverified patta number from the upload.
+    # Account/khata numbers are often only unique within a village. Prefix the
+    # local identifier with its local jurisdiction and survey number so Claim's
+    # globally-unique patta column remains safe across bundled datasets.
+    local_key = "-".join(filter(None, [parcel.state, parcel.district, parcel.village,
+                                      parcel.survey_number, parcel.record_identifier or str(parcel.id)]))
+    patta_number = "LOCAL-" + re.sub(r"[^A-Za-z0-9]+", "-", local_key).strip("-").upper()[:58]
+    if db.query(Claim).filter(Claim.patta_number == patta_number).first():
+        staged_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="A claim already exists for this local cadastral record.")
+
     vertices = parcel.geometry
     latitude = sum(point[0] for point in vertices) / len(vertices)
     longitude = sum(point[1] for point in vertices) / len(vertices)
     claim = Claim(
-        patta_number=parsed["patta_number"], claimant_name=parsed["claimant_name"],
-        claim_type=ClaimType(parsed["claim_type"].upper()), state=parsed["state"],
-        district=parsed["district"], village=parsed["village"], latitude=latitude,
+        patta_number=patta_number,
+        claimant_name=parcel.landholder_name or parsed.get("claimant_name", "Local parcel claimant"),
+        claim_type=ClaimType(parsed.get("claim_type", "IFR").upper()), state=parcel.state,
+        district=parcel.district, village=parcel.village, latitude=latitude,
         longitude=longitude, area_acres=parcel.area_acres or parsed["area_acres"],
-        land_type=parsed.get("land_type", "cultivable").lower(), survey_number=parsed["survey_number"],
+        land_type=(parcel.land_type or parsed.get("land_type") or "not recorded").lower(), survey_number=parcel.survey_number,
         parcel_geometry=vertices, parcel_source="cadastral_registry", owner_id=current_user.id,
     )
     db.add(claim)
@@ -96,7 +112,7 @@ def create_claim_from_document(
         claim_id=claim.id, original_filename=file.filename, stored_filename=stored_filename,
         content_type=file.content_type, file_size_bytes=len(contents), ocr_status=OcrStatus.COMPLETE,
         extracted_text=extracted_text, verification_status=DocumentVerificationStatus.MATCHED,
-        mismatched_fields=[], uploaded_by_id=current_user.id,
+        mismatched_fields=mismatches, uploaded_by_id=current_user.id,
     ))
     db.add(AuditLog(user_id=current_user.id, action="claim_created_from_ocr", entity_type="claim", entity_id=claim.id))
     db.commit()
@@ -230,6 +246,18 @@ def _get_claim_or_403(claim_id: int, db: Session, current_user: User) -> Claim:
     return claim
 
 
+def _find_local_parcel_for_claim(db: Session, claim: Claim) -> CadastralParcel | None:
+    """Return the bundled/imported parcel backing this claim, if any."""
+    if not claim.survey_number:
+        return None
+    return db.query(CadastralParcel).filter(
+        CadastralParcel.state.ilike(claim.state),
+        CadastralParcel.district.ilike(claim.district),
+        CadastralParcel.village.ilike(claim.village),
+        CadastralParcel.survey_number.ilike(claim.survey_number),
+    ).first()
+
+
 @router.post(
     "/{claim_id}/documents",
     response_model=ClaimDocumentOut,
@@ -283,7 +311,11 @@ def upload_claim_document(
 
         if ocr_status == OcrStatus.COMPLETE:
             parsed = parse_fields(extracted_text or "")
-            verification_status_str, mismatched_fields = verify_against_claim(parsed, claim)
+            parcel = _find_local_parcel_for_claim(db, claim)
+            if parcel:
+                verification_status_str, mismatched_fields = verify_against_parcel(parsed, parcel)
+            else:
+                verification_status_str, mismatched_fields = DocumentVerificationStatus.NOT_AVAILABLE.value, []
             verification_status = DocumentVerificationStatus(verification_status_str)
     else:
         # PDFs: OCR pipeline in this scaffold only reads image files directly —
@@ -363,9 +395,11 @@ def retry_document_ocr(
 
         if document.ocr_status == OcrStatus.COMPLETE:
             parsed = parse_fields(extracted_text or "")
-            verification_status, mismatched_fields = verify_against_claim(parsed, claim)
-            document.verification_status = DocumentVerificationStatus(verification_status)
-            document.mismatched_fields = mismatched_fields
+            parcel = _find_local_parcel_for_claim(db, claim)
+            if parcel:
+                verification_status, mismatched_fields = verify_against_parcel(parsed, parcel)
+                document.verification_status = DocumentVerificationStatus(verification_status)
+                document.mismatched_fields = mismatched_fields
 
     db.add(AuditLog(
         user_id=current_user.id, action="document_ocr_retried",

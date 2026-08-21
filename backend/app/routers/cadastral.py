@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_current_user, require_roles
 from app.models import CadastralParcel, User, UserRole
+from app.cadastral_loader import parcel_values
 
 router = APIRouter(prefix="/api/cadastral", tags=["cadastral"])
 
@@ -34,29 +35,21 @@ def import_cadastral_geojson(
     imported = 0
     rejected = []
     for index, feature in enumerate(features, start=1):
-        properties = feature.get("properties") or {}
-        geometry = feature.get("geometry") or {}
-        required = {key: _value(properties, key) for key in ("state", "district", "village", "survey_number")}
-        if not all(required.values()) or geometry.get("type") != "Polygon":
+        values = parcel_values(feature.get("properties") or {}, feature.get("geometry") or {})
+        if not values:
             rejected.append(index)
             continue
-        rings = geometry.get("coordinates") or []
-        if not rings or len(rings[0]) < 3:
-            rejected.append(index)
-            continue
-        # GeoJSON is [longitude, latitude]; the map API internally uses [latitude, longitude].
-        polygon = [[point[1], point[0]] for point in rings[0]]
         existing = db.query(CadastralParcel).filter(
-            CadastralParcel.state.ilike(required["state"]),
-            CadastralParcel.district.ilike(required["district"]),
-            CadastralParcel.village.ilike(required["village"]),
-            CadastralParcel.survey_number.ilike(required["survey_number"]),
+            CadastralParcel.state.ilike(values["state"]),
+            CadastralParcel.district.ilike(values["district"]),
+            CadastralParcel.village.ilike(values["village"]),
+            CadastralParcel.survey_number.ilike(values["survey_number"]),
         ).first()
         if existing:
-            existing.geometry = polygon
-            existing.area_acres = properties.get("area_acres")
+            for key, value in values.items():
+                setattr(existing, key, value)
         else:
-            db.add(CadastralParcel(**required, geometry=polygon, area_acres=properties.get("area_acres")))
+            db.add(CadastralParcel(**values))
         imported += 1
     db.commit()
     return {"imported": imported, "rejected_feature_numbers": rejected}

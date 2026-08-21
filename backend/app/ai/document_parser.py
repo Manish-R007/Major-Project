@@ -149,3 +149,24 @@ def verify_against_claim(parsed: dict, claim) -> tuple[str, list[str]]:
 
     status = VerificationStatus.MISMATCH.value if mismatches else VerificationStatus.MATCHED.value
     return status, mismatches
+
+
+def verify_against_parcel(parsed: dict, parcel) -> tuple[str, list[str]]:
+    """Verify OCR fields strictly against a locally loaded cadastral parcel."""
+    if not parsed:
+        return VerificationStatus.UNPARSEABLE.value, []
+
+    mismatches = []
+    for field in ("state", "district", "village", "survey_number"):
+        if field in parsed and str(parsed[field]).strip().casefold() != str(getattr(parcel, field)).strip().casefold():
+            mismatches.append(field)
+    if "area_acres" in parsed and parcel.area_acres is not None:
+        if not _area_matches(parsed["area_acres"], parcel.area_acres):
+            mismatches.append("area_acres")
+    if "claimant_name" in parsed and parcel.landholder_name:
+        if not _names_match(parsed["claimant_name"], parcel.landholder_name):
+            mismatches.append("claimant_name")
+    if "land_type" in parsed and parcel.land_type:
+        if parsed["land_type"].strip().casefold() not in parcel.land_type.casefold():
+            mismatches.append("land_type")
+    return (VerificationStatus.MISMATCH.value if mismatches else VerificationStatus.MATCHED.value), mismatches

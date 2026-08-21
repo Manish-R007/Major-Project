@@ -100,6 +100,14 @@ sudo apt-get install tesseract-ocr  # Ubuntu/Debian
 Without this, document upload still works fine — extracted text is
 just marked "unavailable" instead of populated.
 
+### Local cadastral OCR verification
+
+At startup the backend imports every GeoJSON file in `backend/data/` into
+the local parcel registry. A scanned document is accepted only when OCR
+finds a matching state, district, village, and survey number in that local
+registry. Its boundary, area, and available record metadata come from the
+matching local parcel; no external cadastral service is used.
+
 API docs (Swagger UI): http://localhost:8000/docs
 
 **Demo logins** (also shown on the login screen):
